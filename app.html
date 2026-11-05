@@ -1,0 +1,750 @@
+<title>Live 垃圾車動態地圖</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&family=Zilla+Slab:wght@600;700&family=Outfit:wght@400;500;700&display=swap">
+<style>
+/* Visual system from the "Live" portfolio: near-black ground, yellow F9E475 (+3 tints) as the only accent,
+   purple 430052/622F68/8D4396 for Live-mode map, Noto Sans TC for Chinese, slab serif for English labels,
+   geometric sans for numbers. Layout: phone = one column + bottom nav; ≥960px = sticky map left, panel right. */
+:root{
+  --bg:#0b0b0c; --surface:#161618; --surface2:#1f1f22; --ink:#f3f1ea; --muted:#9b998f; --line:#2b2b2e;
+  --y1:#524B2A; --y2:#81773F; --y3:#BEAE5B; --y:#F9E475; --on-y:#1a1600; --ytext:#F9E475;
+  --p1:#430052; --p2:#622F68; --p3:#8D4396;
+  --red:#ff5a46;
+  --map-block:#1a1a1d; --map-road:#2c2c30; --map-lane:#242427; --map-park:#1c2320; --map-glow:transparent;
+  --shadow:0 8px 24px rgba(0,0,0,.45);
+  --f-tc:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  --f-en:"Zilla Slab","Rockwell",Georgia,serif;
+  --f-num:"Outfit","Noto Sans TC",system-ui,sans-serif;
+  color-scheme:dark;
+}
+body[data-mode="live"]{--map-block:#2e1838; --map-road:#4a2a58; --map-lane:#3b2147; --map-park:#2a1e36; --map-glow:#8D4396}
+body[data-mode="day"]{
+  --bg:#d9d9d9; --surface:#ececec; --surface2:#f6f6f6; --ink:#161616; --muted:#5f5f5f; --line:#c3c3c3;
+  --y:#e9d24a; --ytext:#6e5e0e; --y3:#a99738; --y2:#7d6f33; --y1:#5e532a; --on-y:#1a1600; --red:#d8341f; --p3:#7a2f85;
+  --map-block:#a3a3a3; --map-road:#cfcfcf; --map-lane:#bdbdbd; --map-park:#9fb09f; --map-glow:transparent;
+  --shadow:0 8px 24px rgba(0,0,0,.15); color-scheme:light}
+
+*{box-sizing:border-box}
+html,body{min-height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-tc);font-size:15px;line-height:1.6;font-weight:400;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:0 calc(78px + env(safe-area-inset-bottom,0px));transition:background .3s,color .3s}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+/* the yellow spine from the portfolio's left edge */
+body::after{content:"";position:fixed;left:0;top:0;bottom:0;width:4px;z-index:11;
+  background:linear-gradient(var(--y1),var(--y2) 40%,var(--y3) 70%,var(--y))}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--y);outline-offset:2px;border-radius:6px}
+.num{font-family:var(--f-num);font-variant-numeric:tabular-nums}
+.en{font-family:var(--f-en);letter-spacing:.01em}
+
+.shell{max-width:1240px;margin:0 auto}
+header.top{display:flex;align-items:center;gap:12px;padding-block:16px 10px}
+.logo{width:44px;height:44px;flex:none;border-radius:12px;background:var(--p3);display:grid;place-items:center;color:var(--y);font-family:var(--f-en);font-weight:700;font-size:15px;line-height:1;gap:3px}
+.logo .dots{display:flex;gap:2px}
+.logo .dots i{width:6px;height:6px;border-radius:50%}
+.dots i:nth-child(1){background:var(--y1)}.dots i:nth-child(2){background:var(--y2)}.dots i:nth-child(3){background:var(--y3)}.dots i:nth-child(4){background:var(--y)}
+.brand{min-width:0}.brand h1{font-size:1.05rem;white-space:nowrap;font-weight:700;margin:0;line-height:1.2;letter-spacing:.04em}
+.brand h1 .en{color:var(--ytext);font-size:1.25rem;margin-right:6px}
+.brand p{margin:0;color:var(--muted);font-size:.78rem;font-weight:300}
+.clock{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.clock .t{font-family:var(--f-num);font-weight:500;font-size:1.3rem;line-height:1;color:var(--ytext)}
+.seg{display:flex;gap:2px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:2px}
+.seg button{border:0;background:none;padding:2px 9px;border-radius:999px;font-size:.72rem;color:var(--muted);font-family:var(--f-num)}
+.seg button[aria-pressed="true"]{background:var(--y);color:var(--on-y);font-weight:700}
+
+.section-h{display:flex;align-items:center;gap:12px;margin:6px 2px 10px}
+.section-h h2{font-size:1.1rem;font-weight:700;margin:0;color:var(--ytext);letter-spacing:.06em}
+.section-h hr{flex:1;border:0;border-top:1px solid var(--y2);margin:0}
+.section-h .en{color:var(--ytext);font-size:1rem}
+
+.banner{font-size:.8rem;color:var(--muted);padding:7px 12px;border:1px solid var(--line);border-radius:12px;margin-bottom:12px;background:var(--surface)}
+.banner b{color:var(--ink);font-weight:500}
+
+.layout{display:grid;gap:14px}
+#mapPane{position:relative}
+.mapwrap{background:var(--map-block);border-radius:22px;overflow:hidden;border:1px solid var(--line);position:relative;box-shadow:var(--shadow)}
+#map{display:block;width:100%;height:auto;max-height:60vh;touch-action:manipulation}
+.topbar{position:absolute;left:10px;right:10px;top:10px;display:flex;gap:8px;align-items:center;pointer-events:none}
+.topbar>*{pointer-events:auto}
+.addr{flex:1;min-width:0;display:flex;align-items:center;gap:8px;background:rgba(22,22,24,.85);color:#f3f1ea;border:1px solid rgba(255,255,255,.08);border-radius:999px;padding:7px 12px;font-size:.82rem;backdrop-filter:blur(6px)}
+.addr svg{width:16px;height:16px;flex:none;color:var(--y)}
+.addr span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.addr button{margin-left:auto;border:0;background:none;color:var(--y);font-size:.75rem;padding:0;flex:none;text-decoration:underline}
+.modes{position:absolute;right:10px;bottom:10px;display:flex;gap:2px;background:rgba(22,22,24,.85);border-radius:999px;padding:3px;backdrop-filter:blur(6px)}
+.modes button{border:0;background:none;color:#9b998f;border-radius:999px;padding:4px 10px;font-size:.72rem;display:flex;align-items:center;gap:4px;font-family:var(--f-num)}
+.modes button svg{width:14px;height:14px}
+.modes button[aria-pressed="true"]{color:#F9E475;background:rgba(249,228,117,.12)}
+.legend{position:absolute;left:10px;bottom:10px;background:rgba(22,22,24,.85);color:#9b998f;border-radius:10px;padding:5px 9px;font-size:.7rem;display:grid;gap:2px;backdrop-filter:blur(6px)}
+.legend span{display:flex;align-items:center;gap:6px}
+.legend i{width:9px;height:9px;border-radius:50%;display:inline-block}
+
+/* SVG map */
+.road{stroke:var(--map-road);stroke-linecap:square}
+.lane{stroke:var(--map-lane)}
+.streetname{fill:var(--muted);font-size:9px;font-family:var(--f-tc);letter-spacing:.15em;opacity:.8}
+.routeline{fill:none;stroke-width:6;stroke-linecap:round;stroke-linejoin:round}
+.routeline.A{stroke:var(--y)} .routeline.B{stroke:var(--y3)}
+.routeline.done{stroke:var(--y1)}
+.glow{fill:var(--map-glow);opacity:.35}
+.stop{cursor:pointer}
+.stop .pin{fill:var(--red);stroke:var(--map-block);stroke-width:2}
+.stop.passed .pin{fill:var(--y1)}
+.stop .halo{fill:none;stroke:var(--y);stroke-width:2;opacity:0}
+.stop.sel .halo{opacity:1}
+.stop.rec .halo{opacity:1;stroke:var(--y);stroke-dasharray:4 3;stroke-width:2.5}
+.stop .lbl{font-family:var(--f-num);font-size:9.5px;font-weight:700;fill:var(--red)}
+.stop .lbl2{font-family:var(--f-num);font-size:8px;fill:var(--ink);opacity:.9}
+.stop.passed .lbl,.stop.passed .lbl2{fill:var(--muted)}
+.stop .lblbg{fill:var(--map-block);opacity:.75;rx:4}
+.social .stop.r-low .pin{fill:var(--y)} .social .stop.r-mid .pin{fill:var(--y3)} .social .stop.r-high .pin{fill:var(--p3)}
+.social .stop.passed .pin{fill:var(--y1)}
+.truck .d1{fill:var(--y)} .truck .d2{fill:var(--y3)} .truck .d3{fill:var(--y2)} .truck .d4{fill:var(--y1)}
+.truck .pulse{fill:var(--y);opacity:0;transform-box:fill-box;transform-origin:center}
+.truck.stopped .pulse{animation:pulse 1.8s ease-out infinite}
+.truck .note{fill:var(--y);font-size:11px;font-family:var(--f-num);animation:note 2.4s ease-in-out infinite}
+.truck.rc .d1{fill:var(--p3)}.truck.rc .d2{fill:var(--p2)}.truck.rc .d3,.truck.rc .d4{fill:var(--p1)}
+@keyframes pulse{from{transform:scale(1);opacity:.6}to{transform:scale(3.2);opacity:0}}
+@keyframes note{0%{transform:translate(0,0);opacity:0}30%{opacity:1}100%{transform:translate(6px,-14px);opacity:0}}
+.home path{fill:var(--ink)}
+.home circle{fill:none;stroke:var(--ink);stroke-dasharray:3 3;opacity:.7}
+.setting-home #map{cursor:crosshair}
+
+/* bottom nav (Profile · Alarm · Live · Night · Day in the portfolio; here: Live · 打卡 · 排行榜 · Profile) */
+.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);
+  padding:6px max(16px,env(safe-area-inset-right,0px)) calc(8px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.tabs{display:flex;gap:4px;max-width:520px;margin:0 auto}
+.tab{flex:1;border:0;background:none;padding:6px 2px 2px;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:.68rem;color:var(--muted);font-family:var(--f-num);letter-spacing:.02em}
+.tab svg{width:22px;height:22px}
+.tab[aria-selected="true"]{color:var(--ytext)}
+.tab .zh{font-family:var(--f-tc);font-size:.7rem}
+.view{display:none;gap:12px}
+.view.on{display:grid}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:14px 16px;min-width:0}
+.card h3{font-size:1rem;margin:0;font-weight:700}
+.eyebrow{font-family:var(--f-en);font-size:.8rem;letter-spacing:.04em;color:var(--ytext);font-weight:600}
+.muted{color:var(--muted)}
+.small{font-size:.82rem}
+.light{font-weight:300}
+
+.status{display:flex;align-items:center;gap:12px}
+.status .note{font-family:var(--f-num);font-size:1.6rem;line-height:1;color:var(--ytext)}
+.status b{font-weight:700}
+
+.switchrow{display:flex;align-items:center;gap:12px}
+.switchrow .txt{flex:1;min-width:0}
+.switch{position:relative;width:50px;height:28px;flex:none;border-radius:999px;border:0;background:var(--line);transition:background .2s}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:var(--ink);transition:transform .2s,background .2s}
+.switch[aria-checked="true"]{background:var(--y)}
+.switch[aria-checked="true"]::after{transform:translateX(22px);background:var(--on-y)}
+
+.rec{border-color:var(--y);background:linear-gradient(180deg,color-mix(in srgb,var(--y) 10%,var(--surface)),var(--surface))}
+.rec h2{font-size:1.25rem;margin:4px 0 2px;font-weight:700}
+.recgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px}
+.stat{background:var(--bg);border-radius:12px;padding:8px 10px;border:1px solid var(--line)}
+.stat .k{font-size:.7rem;color:var(--muted)}
+.stat .v{font-family:var(--f-num);font-weight:700;font-size:1.2rem;color:var(--ytext)}
+.tip{margin-top:10px;font-size:.84rem;padding:9px 11px;border-radius:12px;background:var(--bg);border:1px solid var(--line);font-weight:300}
+.tip b{font-weight:700;color:var(--ytext)}
+
+.stoplist{display:grid;gap:8px;list-style:none;margin:0;padding:0}
+.si{border:1px solid var(--line);border-radius:16px;background:var(--surface);padding:10px 14px;display:grid;gap:6px}
+.si.sel{border-color:var(--y)}
+.si.passed{opacity:.5}
+.si .row{display:flex;align-items:center;gap:8px;min-width:0}
+.si .name{flex:1;min-width:0;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:none;border:0;padding:0;text-align:left}
+.rchip{font-family:var(--f-num);font-size:.7rem;font-weight:700;border-radius:6px;padding:0 6px;background:var(--y);color:var(--on-y)}
+.rchip.B{background:var(--y3)}
+.eta{font-size:.8rem;color:var(--muted);font-weight:300}
+.eta b{color:var(--red);font-family:var(--f-num);font-weight:700}
+.eta b.ok{color:var(--ytext)}
+.risk{font-size:.7rem;border-radius:999px;padding:1px 8px;font-weight:700}
+.risk.low{background:var(--y);color:var(--on-y)} .risk.mid{background:var(--y3);color:var(--on-y)} .risk.high{background:var(--p3);color:#fff}
+.pips{display:flex;gap:2px;align-items:center}
+.pips i{width:6px;height:10px;border-radius:3px 3px 1px 1px;background:var(--line)}
+.pips i.on{background:var(--y3)}
+.detail{font-size:.82rem;color:var(--muted);display:grid;gap:6px;font-weight:300}
+.detail b{color:var(--ink);font-weight:500}
+.ad{border:1px dashed var(--y2);border-radius:10px;padding:8px 10px;display:flex;gap:8px;align-items:center}
+.ad .tag{font-size:.62rem;letter-spacing:.1em;border:1px solid var(--muted);border-radius:4px;padding:0 4px;flex:none}
+
+/* Check-in */
+.today{display:grid;gap:12px}
+.today h2{font-size:1.2rem;margin:0;font-weight:700;text-wrap:balance}
+.streak{display:flex;align-items:baseline;gap:8px}
+.streak .big{font-family:var(--f-num);font-weight:700;font-size:3.6rem;line-height:1;color:var(--ytext)}
+.choices{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.choice{border:1px solid var(--line);background:var(--bg);border-radius:16px;padding:12px 6px;display:grid;justify-items:center;gap:4px;font-weight:500;color:var(--ink)}
+.choice svg{width:26px;height:26px}
+.choice[aria-pressed="true"].got{border-color:var(--y);background:var(--y);color:var(--on-y)}
+.choice[aria-pressed="true"].miss{border-color:var(--red);background:color-mix(in srgb,var(--red) 20%,var(--bg))}
+.choice[aria-pressed="true"].skip{border-color:var(--muted);background:var(--surface2)}
+.choice small{font-weight:300;font-size:.7rem;opacity:.8}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.cal .h{font-size:.7rem;color:var(--muted);text-align:center}
+.cal .d{aspect-ratio:1;max-width:100%;border-radius:8px;background:var(--bg);border:1px solid var(--line);display:grid;place-items:center;font-family:var(--f-num);font-size:.75rem;position:relative}
+.cal .d.got{background:var(--y);color:var(--on-y);border-color:var(--y)}
+.cal .d.miss{background:var(--red);color:#fff;border-color:var(--red)}
+.cal .d.skip{background:var(--surface2)}
+.cal .d.off::after{content:"停";position:absolute;bottom:1px;right:3px;font-size:.55rem;font-family:var(--f-tc);color:var(--muted)}
+.cal .d.today{outline:2px solid var(--ink)}
+.cal .d.future{opacity:.35}
+.cta{border:0;background:var(--y);color:var(--on-y);border-radius:999px;padding:10px 18px;font-weight:700}
+.cta.ghost{background:none;color:var(--ink);border:1px solid var(--line)}
+.chipbtn{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 12px;font-size:.8rem}
+.chipbtn[aria-pressed="true"]{background:var(--y);color:var(--on-y);border-color:var(--y);font-weight:700}
+
+/* Leaderboard */
+.totals{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.sorts{display:flex;gap:6px;flex-wrap:wrap}
+.board{display:grid;gap:8px;list-style:none;margin:0;padding:0}
+.fail{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:start;border:1px solid var(--line);background:var(--surface);border-radius:16px;padding:12px 14px}
+.rank{font-family:var(--f-en);font-weight:700;font-size:1.5rem;width:1.6em;text-align:center;line-height:1.2;color:var(--y3)}
+.fail:nth-child(1) .rank{color:var(--ytext);font-size:1.9rem}
+.fail .who{font-size:.76rem;color:var(--muted);display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.fail .what{margin:2px 0 8px;overflow-wrap:anywhere;font-weight:400}
+.meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.m{font-size:.74rem;border-radius:8px;padding:2px 8px;background:var(--bg);border:1px solid var(--line)}
+.m b{font-family:var(--f-num);color:var(--ytext)}
+.m.blame{border-style:dashed}
+.like{margin-left:auto;border:1px solid var(--line);background:none;border-radius:999px;padding:2px 10px;font-size:.76rem}
+.like[aria-pressed="true"]{background:var(--y);color:var(--on-y);border-color:var(--y)}
+.ex{font-size:.62rem;border:1px solid var(--muted);border-radius:4px;padding:0 4px;color:var(--muted)}
+.del{border:0;background:none;color:var(--muted);font-size:.74rem;text-decoration:underline;padding:0}
+details.card summary{cursor:pointer;font-weight:700;color:var(--ytext);list-style:none;display:flex;align-items:center;gap:8px}
+details.card summary::before{content:"+";font-family:var(--f-num);font-size:1.2rem;line-height:1}
+details[open].card summary::before{content:"–"}
+form.fform{display:grid;gap:10px}
+.field{display:grid;gap:4px;min-width:0}
+.field label{font-size:.78rem;color:var(--muted)}
+.field input,.field select,.field textarea{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:12px;padding:9px 12px}
+.field textarea{min-height:76px;resize:vertical}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.calc{font-size:.84rem;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:8px 12px;font-weight:300}
+.calc b{font-family:var(--f-num);font-size:1.1rem;color:var(--ytext);font-weight:700}
+.empty{padding:24px 12px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:16px;font-weight:300}
+.foot{font-size:.74rem;color:var(--muted);padding:6px 2px 4px;font-weight:300}
+
+/* Profile */
+.prow{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.prow:last-child{border-bottom:0}
+.prow .txt{flex:1;min-width:0}
+.prow .txt small{display:block;color:var(--muted);font-weight:300;font-size:.78rem}
+.prow input{width:90px;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:6px 10px;text-align:right}
+
+.toast{position:fixed;left:50%;bottom:calc(90px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--y);color:var(--on-y);padding:8px 16px;border-radius:999px;font-size:.85rem;font-weight:500;z-index:30;max-width:calc(100% - 32px);box-shadow:var(--shadow)}
+
+body[data-tab="checkin"] #mapPane, body[data-tab="board"] #mapPane, body[data-tab="profile"] #mapPane{display:none}
+
+@media (min-width:960px){
+  body{padding-bottom:24px}
+  .tabbar{position:static;background:none;border:0;padding:0;margin-bottom:12px}
+  .tabs{max-width:none;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:4px}
+  .tab{flex-direction:row;justify-content:center;gap:8px;font-size:.9rem;padding:9px;border-radius:12px}
+  .tab .zh{font-size:.9rem}
+  .tab[aria-selected="true"]{background:var(--bg)}
+  .layout{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);align-items:start}
+  #mapPane{position:sticky;top:calc(env(safe-area-inset-top,0px) + 12px)}
+  #map{max-height:calc(100vh - 140px)}
+  body[data-tab="checkin"] #mapPane, body[data-tab="board"] #mapPane, body[data-tab="profile"] #mapPane{display:block}
+  .toast{bottom:24px}
+}
+@media (prefers-reduced-motion:reduce){.truck .pulse,.truck .note{animation:none}.truck .pulse{opacity:.3}}
+</style>
+
+<div class="shell">
+  <header class="top">
+    <div class="logo" aria-hidden="true">Live<span class="dots"><i></i><i></i><i></i><i></i></span></div>
+    <div class="brand">
+      <h1><span class="en">Live</span>垃圾車動態地圖</h1>
+      <p>坐在家等，不必再追垃圾車</p>
+    </div>
+    <div class="clock">
+      <span class="t num" id="clock">19:28</span>
+      <div class="seg" role="group" aria-label="模擬時間速度">
+        <button type="button" data-speed="1" aria-pressed="false">×1</button>
+        <button type="button" data-speed="10" aria-pressed="true">×10</button>
+        <button type="button" data-speed="60" aria-pressed="false">×60</button>
+      </div>
+    </div>
+  </header>
+  <p class="banner" id="banner"><b>示範路線</b>：大安區兩條虛構路線，時間是模擬時鐘。接上縣市開放資料後會換成真實車輛位置。</p>
+
+  <nav class="tabbar" aria-label="主要功能">
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" id="t-map" data-tab="map" aria-selected="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/></svg>
+        Live</button>
+      <button class="tab" role="tab" id="t-checkin" data-tab="checkin" aria-selected="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="7.5"/><path d="M12 9v4l2.5 2M9 3h6M12 3v2.5"/></svg>
+        <span class="zh">打卡</span></button>
+      <button class="tab" role="tab" id="t-board" data-tab="board" aria-selected="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4"/></svg>
+        <span class="zh">排行榜</span></button>
+      <button class="tab" role="tab" id="t-profile" data-tab="profile" aria-selected="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.5 18.5a6 6 0 0 1 11 0"/></svg>
+        Profile</button>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <section id="mapPane" aria-label="垃圾車地圖">
+      <div class="mapwrap" id="mapwrap">
+        <svg id="map" viewBox="0 0 400 480" role="img" aria-label="大安區示範路線地圖，顯示垃圾車與停靠點"></svg>
+        <div class="topbar">
+          <div class="addr">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 2 12h3v8h5v-5h4v5h5v-8h3z"/></svg>
+            <span id="addrtext">台北市大安區　點「更改」在地圖上標出你家</span>
+            <button type="button" id="sethome" aria-pressed="false">更改</button>
+          </div>
+        </div>
+        <div class="legend" aria-hidden="true">
+          <span><i style="background:#F9E475"></i>垃圾車</span>
+          <span><i style="background:#8D4396"></i>資源回收車</span>
+          <span id="lg-social" hidden><i style="background:#F9E475"></i>人少　<i style="background:#8D4396"></i>人多</span>
+        </div>
+        <div class="modes" role="group" aria-label="地圖模式">
+          <button type="button" data-mode="night" aria-pressed="false"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 15.3A8.5 8.5 0 0 1 8.7 4 8.5 8.5 0 1 0 20 15.3z"/></svg>Night</button>
+          <button type="button" data-mode="live" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7"/></svg>Live</button>
+          <button type="button" data-mode="day" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>Day</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <!-- LIVE -->
+      <div class="view on" id="v-map" role="tabpanel" aria-labelledby="t-map">
+        <div class="card status" id="status"></div>
+        <div class="card">
+          <div class="switchrow">
+            <div class="txt">
+              <h3>社恐模式</h3>
+              <div class="small muted light">推薦人最少、阿姨最不會找你聊天的點位，並算好幾點出門最不用排隊寒暄。</div>
+            </div>
+            <button class="switch" id="social" role="switch" aria-checked="false" aria-label="社恐模式"></button>
+          </div>
+        </div>
+        <div class="card rec" id="reccard" hidden></div>
+        <div>
+          <div class="section-h"><h2 id="listhead">點位資訊</h2><hr><span class="en" id="listhead-en">Waiting Points</span></div>
+          <ul class="stoplist" id="stoplist"></ul>
+        </div>
+      </div>
+
+      <!-- CHECK-IN -->
+      <div class="view" id="v-checkin" role="tabpanel" aria-labelledby="t-checkin">
+        <div class="section-h"><h2>今天追到沒</h2><hr><span class="en">Streak</span></div>
+        <div class="card today">
+          <div>
+            <div class="eyebrow" id="todaylabel">Today</div>
+            <h2 id="todayq">今天有追到垃圾車嗎？</h2>
+          </div>
+          <div class="choices">
+            <button type="button" class="choice got" data-v="got" aria-pressed="false">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+              追到了<small>垃圾已出門</small></button>
+            <button type="button" class="choice miss" data-v="miss" aria-pressed="false">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              沒追到<small>車已轉彎</small></button>
+            <button type="button" class="choice skip" data-v="skip" aria-pressed="false">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"/></svg>
+              今天不用倒<small>不影響紀錄</small></button>
+          </div>
+          <div id="misscta" hidden class="tip">
+            沒追到也是一種經歷。把過程寫進排行榜，算算你損失了多少時間。
+            <div style="margin-top:8px"><button type="button" class="cta" id="gofail">寫進蠢事排行榜</button></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="streak"><span class="big num" id="streak">0</span><span>天連續追到</span></div>
+          <div class="recgrid">
+            <div class="stat"><div class="k">最長紀錄</div><div class="v" id="best">0 天</div></div>
+            <div class="stat"><div class="k">本月追到率</div><div class="v" id="rate">–</div></div>
+            <div class="stat"><div class="k">本月沒追到</div><div class="v" id="misses">0 次</div></div>
+          </div>
+          <p class="small muted light" style="margin:10px 0 0">週三、週日停收，這兩天不會中斷連續紀錄。</p>
+        </div>
+        <div class="card">
+          <h3 style="margin-bottom:8px">最近五週</h3>
+          <div class="cal" id="cal"></div>
+          <p class="foot" id="ckstore">紀錄只存在這台裝置。</p>
+        </div>
+      </div>
+
+      <!-- BOARD -->
+      <div class="view" id="v-board" role="tabpanel" aria-labelledby="t-board">
+        <div class="section-h"><h2>蠢事排行榜</h2><hr><span class="en">Hall of Shame</span></div>
+        <div class="card">
+          <div class="eyebrow">台灣垃圾車制度害我</div>
+          <div class="totals" style="margin-top:8px">
+            <div class="stat"><div class="k">大家一共損失</div><div class="v" id="totLost">0 分鐘</div></div>
+            <div class="stat"><div class="k">大家一共燃燒</div><div class="v" id="totKcal">0 大卡</div></div>
+          </div>
+          <p class="small muted light" style="margin:8px 0 0" id="topBlame"></p>
+        </div>
+        <details class="card" id="formcard">
+          <summary>我也做過蠢事，我要上榜</summary>
+          <form class="fform" id="fform" style="margin-top:12px">
+            <div class="field"><label for="f-handle">暱稱</label><input id="f-handle" maxlength="20" placeholder="例如：汐止拖鞋俠"></div>
+            <div class="field"><label for="f-text">發生了什麼事</label><textarea id="f-text" maxlength="140" required placeholder="穿著拖鞋追了兩條街，回家才發現鑰匙丟進垃圾袋裡"></textarea></div>
+            <div class="field"><label for="f-blame">要怪誰</label>
+              <select id="f-blame">
+                <option>車不等人</option><option>時間太死，下班趕不上</option><option>週三週日停收</option><option>沒有定點垃圾桶</option><option>分類太複雜</option><option>音樂太小聲沒聽到</option><option>其實是我自己</option>
+              </select></div>
+            <div class="grid2">
+              <div class="field"><label for="f-lost">損失多少時間（分鐘）</label><input id="f-lost" type="number" min="1" max="600" value="15" required inputmode="numeric"></div>
+              <div class="field"><label for="f-act">當時在做什麼</label>
+                <select id="f-act">
+                  <option value="sprint">穿拖鞋狂奔</option><option value="run">提垃圾慢跑</option><option value="stairs">衝下樓梯</option><option value="carry">提著垃圾快走</option><option value="wait">站在路口乾等</option>
+                </select></div>
+              <div class="field"><label for="f-dur">動了幾分鐘</label><input id="f-dur" type="number" min="1" max="180" value="5" required inputmode="numeric"></div>
+              <div class="field"><label for="f-kg">體重（公斤）</label><input id="f-kg" type="number" min="25" max="200" value="60" inputmode="numeric"></div>
+            </div>
+            <div class="calc" id="calc"></div>
+            <p class="small muted light" style="margin:0">體重只用來算卡路里，不會上傳。</p>
+            <button class="cta" type="submit" id="fsubmit">送出，讓大家看看</button>
+          </form>
+        </details>
+        <div class="sorts" role="group" aria-label="排序方式">
+          <button type="button" class="chipbtn" data-sort="lost" aria-pressed="true">損失最多時間</button>
+          <button type="button" class="chipbtn" data-sort="kcal" aria-pressed="false">燒最多卡路里</button>
+          <button type="button" class="chipbtn" data-sort="likes" aria-pressed="false">最多人同感</button>
+        </div>
+        <ul class="board" id="board"></ul>
+        <p class="foot" id="bdstore">排行榜只存在這台裝置。</p>
+      </div>
+
+      <!-- PROFILE -->
+      <div class="view" id="v-profile" role="tabpanel" aria-labelledby="t-profile">
+        <div class="section-h"><h2>個人資料</h2><hr><span class="en">Profile</span></div>
+        <div class="card">
+          <div class="prow"><div class="txt">暱稱<small>排行榜投稿時顯示</small></div><input id="p-handle" maxlength="20" placeholder="匿名追車人" style="width:150px"></div>
+          <div class="prow"><div class="txt">體重<small>只用來算卡路里，不上傳</small></div><input id="p-kg" type="number" min="25" max="200" inputmode="numeric"><span class="muted small">kg</span></div>
+          <div class="prow"><div class="txt">我家位置<small>社恐模式用它算走路時間</small></div><button type="button" class="chipbtn" id="sethome2">到地圖上標</button></div>
+          <div class="prow"><div class="txt">社恐模式<small>打開 App 時預設開啟</small></div><button class="switch" id="social2" role="switch" aria-checked="false" aria-label="社恐模式"></button></div>
+          <div class="prow"><div class="txt">地圖模式<small>Night 省眼、Live 看動態、Day 白天用</small></div>
+            <div class="seg" role="group" aria-label="地圖模式"><button type="button" data-mode="night" aria-pressed="false">Night</button><button type="button" data-mode="live" aria-pressed="true">Live</button><button type="button" data-mode="day" aria-pressed="false">Day</button></div></div>
+        </div>
+        <div class="card">
+          <div class="eyebrow">About</div>
+          <p class="small light" style="margin:6px 0 0">Live 是一款呈現垃圾車路徑的動態地圖 App，幫助忙碌的現代人掌握垃圾車的即時位置。這個版本加上三件事：社恐模式、連續打卡，以及記錄大家因為追垃圾車做過的蠢事。</p>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(()=>{
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const pad=n=>String(n).padStart(2,'0');
+const toMin=s=>{const[h,m]=s.split(':').map(Number);return h*60+m};
+const fmt=m=>{m=Math.floor(m);return pad(Math.floor(m/60)%24)+':'+pad(((m%60)+60)%60)};
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const store={get(k,d){try{const v=localStorage.getItem('gc_'+k);return v==null?d:JSON.parse(v)}catch(e){return d}},
+             set(k,v){try{localStorage.setItem('gc_'+k,JSON.stringify(v))}catch(e){}}};
+const dkey=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const noCollect=d=>d.getDay()===0||d.getDay()===3;
+let toastT;function toast(msg){const t=$('#toast');t.textContent=msg;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,2600)}
+
+/* ---------- Demo routes (swap for open-data adapter) ---------- */
+const ROUTES=[
+ {id:'A',depot:{x:50,y:500},exit:{x:420,y:130},stops:[
+  {id:'a1',x:50,y:410,t:'19:32',dwell:4,base:16,aunt:.9,name:'復興南路二段 410 巷口',shop:'7-ELEVEN 復興門市'},
+  {id:'a2',x:125,y:410,t:'19:38',dwell:3,base:6,aunt:.35,name:'大安路二段 安靜巷內'},
+  {id:'a3',x:125,y:270,t:'19:44',dwell:4,base:11,aunt:.7,name:'通化街 小公園旁'},
+  {id:'a4',x:200,y:270,t:'19:50',dwell:5,base:18,aunt:.95,name:'敦化南路 全家前',shop:'全家 敦南門市'},
+  {id:'a5',x:275,y:270,t:'19:57',dwell:3,base:4,aunt:.2,name:'臥龍街 停車場出口'},
+  {id:'a6',x:275,y:130,lp:'b',t:'20:03',dwell:4,base:9,aunt:.5,name:'四維路 巷口'},
+  {id:'a7',x:350,y:130,t:'20:09',dwell:4,base:13,aunt:.8,name:'光復南路 里民活動中心'}]},
+ {id:'B',depot:{x:-20,y:130},exit:{x:275,y:500},stops:[
+  {id:'b1',x:50,y:130,t:'19:35',dwell:4,base:8,aunt:.6,name:'仁愛路四段 巷口'},
+  {id:'b2',x:125,y:130,t:'19:41',dwell:3,base:5,aunt:.3,name:'仁愛路 銀杏樹下'},
+  {id:'b3',x:200,y:130,t:'19:47',dwell:5,base:15,aunt:.85,name:'敦化南路 超市騎樓'},
+  {id:'b4',x:200,y:60,t:'19:53',dwell:3,base:7,aunt:.5,name:'仁愛圓環東側'},
+  {id:'b5',x:350,y:60,t:'20:00',dwell:4,base:12,aunt:.7,name:'光復南路口 7-11 前',shop:'7-ELEVEN 光復門市'},
+  {id:'b6',x:350,y:200,t:'20:07',dwell:3,base:3,aunt:.15,name:'國父紀念館 側門'},
+  {id:'b7',x:275,y:340,t:'20:13',dwell:4,base:10,aunt:.6,name:'和平東路 菜市場口'}]}
+];
+const ALL=ROUTES.flatMap(r=>r.stops.map(s=>Object.assign(s,{route:r.id})));
+const SIM_START=toMin('19:26'), SIM_END=toMin('20:24');
+function seeded(str){let h=1779033703^str.length;for(let i=0;i<str.length;i++){h=Math.imul(h^str.charCodeAt(i),3432918353);h=h<<13|h>>>19}
+  return()=>{h=Math.imul(h^h>>>16,2246822507);h=Math.imul(h^h>>>13,3266489909);return((h^=h>>>16)>>>0)/4294967296}}
+const NOW=new Date(), TODAY=dkey(NOW);
+ROUTES.forEach(r=>{const rnd=seeded(TODAY+r.id);let cum=0;r.stops.forEach(s=>{cum+=Math.round((rnd()*3.5-1)*2)/2;s.arr=toMin(s.t)+cum;s.leave=s.arr+s.dwell})});
+const DAYF=[1,1.3,1,1,1.3,1,1][NOW.getDay()];
+
+let simMin=SIM_START, speed=10, last=performance.now();
+function tick(now){const dt=(now-last)/1000;last=now;simMin+=dt*speed/60;if(simMin>SIM_END)simMin=SIM_START;}
+
+function manhattan(a,b,p){const dx=b.x-a.x,dy=b.y-a.y,tot=Math.abs(dx)+Math.abs(dy);if(!tot)return{x:a.x,y:a.y};const d=p*tot;
+  return d<=Math.abs(dx)?{x:a.x+Math.sign(dx)*d,y:a.y}:{x:b.x,y:a.y+Math.sign(dy)*(d-Math.abs(dx))}}
+function truckAt(r,m){const s=r.stops;
+  if(m<s[0].arr-6)return null;
+  if(m<s[0].arr)return Object.assign(manhattan(r.depot,s[0],(m-(s[0].arr-6))/6),{state:'coming',next:s[0]});
+  for(let i=0;i<s.length;i++){
+    if(m<s[i].leave)return{x:s[i].x,y:s[i].y,state:'stopped',at:s[i]};
+    if(i<s.length-1&&m<s[i+1].arr)return Object.assign(manhattan(s[i],s[i+1],(m-s[i].leave)/(s[i+1].arr-s[i].leave)),{state:'moving',next:s[i+1]});
+  }
+  const lastS=s[s.length-1];if(m<lastS.leave+6)return Object.assign(manhattan(lastS,r.exit,(m-lastS.leave)/6),{state:'leaving'});
+  return null}
+function crowd(s,m){const exp=Math.max(1,Math.round(s.base*DAYF));
+  if(m<s.arr-7||m>=s.leave)return{now:0,exp};
+  if(m<s.arr)return{now:Math.round(exp*(m-(s.arr-7))/7),exp};
+  return{now:Math.max(1,Math.round(exp*(1-(m-s.arr)/s.dwell*.8))),exp}}
+const risk=s=>Math.min(100,Math.round(Math.max(1,Math.round(s.base*DAYF))*3.2+s.aunt*35));
+const rlevel=v=>v<35?'low':v<60?'mid':'high';
+const RL={low:'人少',mid:'普通',high:'社交風險高'};
+let home=store.get('home',{x:200,y:340});
+const walk=s=>(Math.abs(s.x-home.x)+Math.abs(s.y-home.y))*3/75;
+function recommend(m){let best=null;
+  for(const s of ALL){const w=walk(s);if(s.leave-1<m+w)continue;const score=risk(s)+w*3;if(!best||score<best.score)best={s,score,w}}
+  if(!best)return null;const s=best.s,target=s.arr+Math.min(2,s.dwell-1.5);
+  return{...best,target,leaveHome:Math.max(m,target-best.w)}}
+
+/* ---------- Map ---------- */
+const NS='http://www.w3.org/2000/svg', svg=$('#map');
+function el(tag,attrs,parent){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);(parent||svg).appendChild(e);return e}
+let glowEl;const routeSegs={};
+function drawBase(){
+  el('rect',{x:0,y:0,width:400,height:480,fill:'var(--map-block)'});
+  glowEl=el('circle',{r:150,class:'glow'});
+  el('rect',{x:140,y:290,width:50,height:40,rx:6,fill:'var(--map-park)'});
+  el('rect',{x:362,y:212,width:38,height:112,rx:6,fill:'var(--map-park)'});
+  const mains={v:[[50,'復興南路'],[200,'敦化南路'],[350,'光復南路']],h:[[60,'仁愛路'],[200,'信義路'],[340,'和平東路']]};
+  const lanes={v:[125,275],h:[130,270,410]};
+  lanes.v.forEach(x=>el('line',{x1:x,y1:0,x2:x,y2:480,class:'road lane','stroke-width':7}));
+  lanes.h.forEach(y=>el('line',{x1:0,y1:y,x2:400,y2:y,class:'road lane','stroke-width':7}));
+  mains.v.forEach(([x])=>el('line',{x1:x,y1:0,x2:x,y2:480,class:'road','stroke-width':15}));
+  mains.h.forEach(([y])=>el('line',{x1:0,y1:y,x2:400,y2:y,class:'road','stroke-width':15}));
+  mains.v.forEach(([x,n])=>{const t=el('text',{x:x+12,y:470,class:'streetname',transform:`rotate(-90 ${x+12} 470)`});t.textContent=n});
+  mains.h.forEach(([y,n])=>{const t=el('text',{x:8,y:y-11,class:'streetname'});t.textContent=n});
+  // route as per-segment paths so passed segments can dim (portfolio: thick yellow band)
+  ROUTES.forEach(r=>{const pts=[r.depot,...r.stops,r.exit];routeSegs[r.id]=[];
+    for(let i=1;i<pts.length;i++){const a=pts[i-1],b=pts[i];
+      routeSegs[r.id].push(el('path',{d:`M${a.x} ${a.y} L${b.x} ${a.y} L${b.x} ${b.y}`,class:'routeline '+r.id}))}});
+}
+const stopEls={};
+function drawStops(){const g=el('g',{});ALL.forEach(s=>{
+  const sg=el('g',{class:'stop',transform:`translate(${s.x} ${s.y})`,tabindex:0,role:'button','aria-label':s.name},g);
+  el('circle',{r:12,class:'halo'},sg);el('circle',{r:5.5,class:'pin'},sg);
+  const lp=s.lp||(s.x<300?'r':'l');let bg,t1,t2;
+  if(lp==='b'){bg=el('rect',{x:-27,y:9,width:54,height:14,class:'lblbg'},sg);
+    t1=el('text',{x:-25,y:20,'text-anchor':'start',class:'lbl'},sg);t2=el('text',{x:2,y:20,'text-anchor':'start',class:'lbl2'},sg)}
+  else{const right=lp==='r';const lx=right?10:-10;
+    bg=el('rect',{x:right?8:-62,y:-7,width:54,height:14,class:'lblbg'},sg);
+    t1=el('text',{x:lx,y:4,'text-anchor':right?'start':'end',class:'lbl'},sg);
+    t2=el('text',{x:right?lx+27:lx-27,y:4,'text-anchor':right?'start':'end',class:'lbl2'},sg)}
+  sg.addEventListener('click',e=>{e.stopPropagation();select(s.id,true)});
+  sg.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(s.id,true)}});
+  stopEls[s.id]={g:sg,t1,t2,bg}})}
+/* truck = four fading dots trailing along the route (portfolio "Live" motion) */
+function truckGlyph(cls){const g=el('g',{class:'truck '+cls});
+  el('circle',{r:6,class:'pulse'},g);
+  const dots=[];for(let i=3;i>=0;i--)dots[i]=el('circle',{r:i===0?5:4.2-i*.5,class:'d'+(i+1)},g);
+  if(cls==='gt'){const n=el('text',{x:6,y:-10,class:'note'},g);n.textContent='♪'}
+  g._dots=dots;return g}
+const trucks={};let homeEl;
+function drawDynamic(){ROUTES.forEach(r=>{trucks[r.id]={rc:truckGlyph('rc'),gt:truckGlyph('gt')}});
+  homeEl=el('g',{class:'home'});el('circle',{r:14},homeEl);el('path',{d:'M-7 1 L0 -6 L7 1 V7 H-7 Z'},homeEl)}
+function placeHome(){homeEl.setAttribute('transform',`translate(${home.x} ${home.y})`);glowEl.setAttribute('cx',home.x);glowEl.setAttribute('cy',home.y)}
+function placeTruck(T,r,m,isRc){const p=truckAt(r,m);T.style.display=p?'':'none';if(!p)return;
+  T.setAttribute('class','truck '+(isRc?'rc':'gt')+(p.state==='stopped'?' stopped':''));
+  T._dots.forEach((d,i)=>{const q=i===0?p:(truckAt(r,m-i*.45)||p);d.setAttribute('cx',q.x);d.setAttribute('cy',q.y)});
+  T.querySelector('.pulse').setAttribute('cx',p.x);T.querySelector('.pulse').setAttribute('cy',p.y);
+  const n=T.querySelector('.note');if(n){n.setAttribute('x',p.x+6);n.setAttribute('y',p.y-10)}}
+
+let social=store.get('social',false), selected=null, settingHome=false;
+function select(id,fromMap){selected=selected===id&&!fromMap?null:id;renderList(true);
+  if(fromMap){const li=document.getElementById('si-'+id);li&&li.scrollIntoView({behavior:'smooth',block:'nearest'})}}
+function setSocial(v){social=v;store.set('social',v);$$('#social,#social2').forEach(b=>b.setAttribute('aria-checked',v));
+  $('#mapwrap').classList.toggle('social',v);$('#lg-social').hidden=!v;$('#reccard').hidden=!v;renderList(true)}
+function setMode(mo){document.body.dataset.mode=mo;store.set('mode',mo);$$('[data-mode]').forEach(b=>{if(b.tagName==='BUTTON')b.setAttribute('aria-pressed',b.dataset.mode===mo)})}
+$$('button[data-mode]').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
+
+function renderMap(){const m=simMin;
+  ROUTES.forEach(r=>{placeTruck(trucks[r.id].gt,r,m,false);placeTruck(trucks[r.id].rc,r,m-1.5,true);
+    const pts=[r.depot,...r.stops];routeSegs[r.id].forEach((seg,i)=>{const b=pts[i+1];const done=b?m>=b.leave:m>=r.stops[r.stops.length-1].leave+6;
+      seg.setAttribute('class','routeline '+r.id+(done?' done':''))})});
+  const rec=social?recommend(m):null;
+  ALL.forEach(s=>{const E=stopEls[s.id],passed=m>=s.leave,c=crowd(s,m);
+    let cls='stop'+(passed?' passed':'')+(selected===s.id?' sel':'')+(rec&&rec.s.id===s.id?' rec':'');
+    if(social)cls+=' r-'+rlevel(risk(s));E.g.setAttribute('class',cls);
+    E.t1.textContent=fmt(s.arr);
+    E.t2.textContent=passed?'已離開':m<s.arr?`⏱ ${Math.ceil(s.arr-m)} min`:`停 ${Math.max(1,Math.ceil(s.leave-m))} min`;
+    if(social&&!passed)E.t2.textContent=(c.now||c.exp)+' 人';});
+  $('#clock').textContent=fmt(m)}
+
+function etaText(s,m){if(m<s.arr){const d=Math.ceil(s.arr-m);return `<b>${fmt(s.arr)}</b>　⏱ <b>${d}</b> min`}
+  if(m<s.leave)return `<b class="ok">停靠中</b>　再 <b class="ok">${Math.max(1,Math.ceil(s.leave-m))}</b> min 開走`;
+  return 'Leaving…　已離開'}
+function pips(n,max){let h='';const k=Math.min(10,Math.round(n/max*10));for(let i=0;i<10;i++)h+=`<i class="${i<k?'on':''}"></i>`;return `<span class="pips" aria-label="約 ${n} 人">${h}</span>`}
+let lastListSig='';
+function renderList(force){const m=simMin;
+  const near=ALL.filter(s=>m<s.leave).sort((a,b)=>a.arr-b.arr)[0];
+  const playing=ROUTES.filter(r=>truckAt(r,m)).map(r=>r.id);
+  $('#status').innerHTML=near?`<span class="note" aria-hidden="true">♪</span><div><div class="small muted light">${playing.length?'《少女的祈禱》播放中：'+playing.map(x=>x+' 線').join('、'):'車還沒出發，先把垃圾綁好'}</div>
+    <div><b>${esc(near.name)}</b><span class="eta">　${etaText(near,m)}</span></div></div>`:`<div><b>今晚的車都收完了</b><div class="small muted light">模擬時鐘會回到 19:26 重來。</div></div>`;
+  if(social){const r=recommend(m);
+    $('#reccard').innerHTML=r?`<div class="eyebrow">Recommended · 社恐推薦</div><h2>${esc(r.s.name)}</h2>
+      <div class="small muted"><span class="rchip ${r.s.route}">${r.s.route}</span>　到站 ${fmt(r.s.arr)}・停 ${r.s.dwell} 分</div>
+      <div class="recgrid">
+        <div class="stat"><div class="k">幾點出門</div><div class="v">${r.leaveHome<=m+.5?'現在':fmt(r.leaveHome)}</div></div>
+        <div class="stat"><div class="k">預估人數</div><div class="v">${crowd(r.s,r.s.arr).exp} 人</div></div>
+        <div class="stat"><div class="k">走路</div><div class="v">${Math.max(1,Math.round(r.w))} 分</div></div>
+      </div>
+      <div class="tip">車到之後約 ${Math.round(r.target-r.s.arr)} 分鐘再抵達：排隊的人已經丟完一半，車還沒開走。阿姨攀談機率 <b class="num">${Math.round(r.s.aunt*100)}%</b>，社交風險 <b class="num">${risk(r.s)}</b>/100。</div>`
+      :`<h2>今晚已經沒有趕得上的點位了</h2><div class="small muted light">到 Profile 把家的位置設在離路線近一點的地方，或明天請早。</div>`}
+  let list=ALL.slice();
+  if(social)list.sort((a,b)=>(m>=a.leave)-(m>=b.leave)||(risk(a)+walk(a)*3)-(risk(b)+walk(b)*3));
+  else list.sort((a,b)=>(m>=a.leave)-(m>=b.leave)||a.arr-b.arr);
+  $('#listhead').textContent=social?'依社交風險排序':'點位資訊';$('#listhead-en').textContent=social?'Quiet first':'Waiting Points';
+  const html=list.map(s=>{const c=crowd(s,m),passed=m>=s.leave,rv=risk(s),lv=rlevel(rv),open=selected===s.id;
+    return `<li class="si${passed?' passed':''}${open?' sel':''}" id="si-${s.id}">
+      <div class="row"><span class="rchip ${s.route}">${s.route}</span><button type="button" class="name" data-sel="${s.id}" aria-expanded="${open}">${esc(s.name)}</button>
+      ${social&&!passed?`<span class="risk ${lv}">${RL[lv]}</span>`:''}</div>
+      <div class="row"><span class="eta" style="flex:1">${etaText(s,m)}</span>${pips(passed?0:(c.now||(social?c.exp:0)),18)}</div>
+      ${open?`<div class="detail">
+        <div>平常約 <b class="num">${c.exp}</b> 人在這裡等・阿姨攀談機率 <b class="num">${Math.round(s.aunt*100)}%</b>・從你家走過去 <b class="num">${Math.max(1,Math.round(walk(s)))}</b> 分鐘</div>
+        ${s.shop?`<div class="ad"><span class="tag">AD</span><span>倒完順路：<b>${esc(s.shop)}</b>　今晚出示 Live 咖啡第二杯半價</span></div>`:''}
+      </div>`:''}</li>`}).join('');
+  if(force||html!==lastListSig){$('#stoplist').innerHTML=html;lastListSig=html}}
+$('#stoplist').addEventListener('click',e=>{const b=e.target.closest('[data-sel]');if(b)select(b.dataset.sel,false)});
+
+function setHomeMode(v){settingHome=v;document.body.classList.toggle('setting-home',v);$('#sethome').setAttribute('aria-pressed',v);
+  $('#sethome').textContent=v?'取消':'更改';$('#addrtext').textContent=v?'點地圖上你家的位置':addrLabel()}
+function addrLabel(){return store.get('homeset',false)?'台北市大安區　我家已標記':'台北市大安區　點「更改」在地圖上標出你家'}
+$('#sethome').onclick=()=>setHomeMode(!settingHome);
+$('#sethome2').onclick=()=>{showTab('map');setHomeMode(true);window.scrollTo({top:0,behavior:'smooth'})};
+svg.addEventListener('click',e=>{if(!settingHome)return;const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;
+  const p=pt.matrixTransform(svg.getScreenCTM().inverse());home={x:Math.round(p.x),y:Math.round(p.y)};store.set('home',home);store.set('homeset',true);placeHome();setHomeMode(false);renderList(true);toast('家的位置已更新')});
+$$('#social,#social2').forEach(b=>b.onclick=()=>setSocial(!social));
+$$('[data-speed]').forEach(b=>b.onclick=()=>{speed=+b.dataset.speed;$$('[data-speed]').forEach(x=>x.setAttribute('aria-pressed',x===b))});
+
+function showTab(t){document.body.dataset.tab=t;$$('.tab').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===t));
+  $$('.view').forEach(v=>v.classList.toggle('on',v.id==='v-'+t));store.set('tab',t)}
+$$('.tab').forEach(b=>b.onclick=()=>{showTab(b.dataset.tab);window.scrollTo({top:0})});
+
+/* ---------- Check-in ---------- */
+let days=store.get('days',{}), saveDays=d=>store.set('days',d);
+function streakOf(days){let s=0;const d=new Date();for(let i=0;i<800;i++){const v=days[dkey(d)];
+  if(v==='got')s++;else if(v==='skip'||noCollect(d)){}else if(v==='miss')break;else if(i>0)break;d.setDate(d.getDate()-1)}return s}
+function bestOf(days){const ks=Object.keys(days).sort();if(!ks.length)return 0;const d=new Date(ks[0]+'T12:00');let cur=0,best=0;const end=dkey(NOW);
+  while(dkey(d)<=end){const v=days[dkey(d)];if(v==='got'){cur++;best=Math.max(best,cur)}else if(v==='skip'||noCollect(d)){}else if(dkey(d)!==end)cur=0;d.setDate(d.getDate()+1)}return best}
+function renderCheckin(){const v=days[TODAY];
+  $('#todaylabel').textContent=`Today · ${NOW.getMonth()+1} 月 ${NOW.getDate()} 日 星期${'日一二三四五六'[NOW.getDay()]}`;
+  $('#todayq').textContent=noCollect(NOW)?'今天停收。休息一天，紀錄不會斷。':'今天有追到垃圾車嗎？';
+  $$('.choice').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===v));
+  $('#misscta').hidden=v!=='miss';
+  $('#streak').textContent=streakOf(days);$('#best').textContent=bestOf(days)+' 天';
+  const pre=TODAY.slice(0,7);let g=0,mi=0;for(const k in days)if(k.startsWith(pre)){if(days[k]==='got')g++;if(days[k]==='miss')mi++}
+  $('#rate').textContent=g+mi?Math.round(g/(g+mi)*100)+'%':'–';$('#misses').textContent=mi+' 次';
+  let h='日一二三四五六'.split('').map(x=>`<div class="h">${x}</div>`).join('');
+  const start=new Date(NOW);start.setDate(start.getDate()-start.getDay()-28);
+  for(let i=0;i<35;i++){const d=new Date(start);d.setDate(start.getDate()+i);const k=dkey(d),st=days[k]||'';
+    h+=`<div class="d ${st}${noCollect(d)?' off':''}${k===TODAY?' today':''}${k>TODAY?' future':''}" title="${k}${st?' '+({got:'追到',miss:'沒追到',skip:'不用倒'}[st]):''}">${d.getDate()}</div>`}
+  $('#cal').innerHTML=h}
+$$('.choice').forEach(b=>b.onclick=()=>{const v=b.dataset.v;if(days[TODAY]===v)delete days[TODAY];else days[TODAY]=v;saveDays(days);renderCheckin();
+  if(days[TODAY]==='got')toast('追到了！連續 '+streakOf(days)+' 天')});
+$('#gofail').onclick=()=>{showTab('board');$('#formcard').open=true;$('#f-text').focus()};
+
+/* ---------- Leaderboard ---------- */
+const ACT={sprint:{n:'穿拖鞋狂奔',met:9.8},run:{n:'提垃圾慢跑',met:8.3},stairs:{n:'衝下樓梯',met:8.8},carry:{n:'提著垃圾快走',met:5.0},wait:{n:'站在路口乾等',met:1.8}};
+const kcalOf=(act,dur,kg)=>Math.round((ACT[act]?.met||3)*kg*dur/60);
+const EXAMPLES=[
+ {uid:'ex1',id:'1',ex:1,handle:'範例・中和濕髮人',text:'聽到少女的祈禱從浴室衝出去，頭髮還在滴水，車已經轉彎了。',lost:25,act:'sprint',dur:4,kcal:39,blame:'車不等人'},
+ {uid:'ex2',id:'1',ex:1,handle:'範例・三重回收魂',text:'提著兩袋垃圾加一袋回收追了三個路口，回收車說寶特瓶要先沖過。',lost:40,act:'carry',dur:12,kcal:60,blame:'分類太複雜'},
+ {uid:'ex3',id:'1',ex:1,handle:'範例・忘記星期幾',text:'記錯今天是週三，在路口站了 20 分鐘，只等到一隻貓。',lost:20,act:'wait',dur:20,kcal:36,blame:'週三週日停收'},
+ {uid:'ex4',id:'1',ex:1,handle:'範例・加班到七點半',text:'連續五天下班都趕不上 19:32 那班，最後買了第二個垃圾桶放陽台。',lost:90,act:'run',dur:6,kcal:50,blame:'時間太死，下班趕不上'}];
+let cloud=null, fails=[], likes={}, myLikes={}, sortBy='lost', profiles={};
+function localLoad(){fails=EXAMPLES.concat(store.get('fails',[]).map(f=>({...f,uid:'me'})));myLikes=store.get('likes',{});likes={};for(const k in myLikes)likes[k]=1}
+const keyOf=f=>f.uid+':'+f.id;
+const nameOf=f=>f.handle||profiles[f.uid]?.name||'匿名追車人';
+function renderBoard(){
+  const real=fails.filter(f=>!f.ex), base=real.length?real:fails;
+  const tl=base.reduce((a,f)=>a+(+f.lost||0),0), tk=base.reduce((a,f)=>a+(+f.kcal||0),0);
+  $('#totLost').textContent=tl>=120?(tl/60).toFixed(1)+' 小時':tl+' 分鐘';$('#totKcal').textContent=tk+' 大卡';
+  const bc={};base.forEach(f=>bc[f.blame]=(bc[f.blame]||0)+1);const top=Object.entries(bc).sort((a,b)=>b[1]-a[1])[0];
+  $('#topBlame').textContent=top?`最多人怪罪：「${top[0]}」（${top[1]} 則）`:'';
+  const arr=fails.slice().sort((a,b)=>sortBy==='likes'?(likes[keyOf(b)]||0)-(likes[keyOf(a)]||0)||b.lost-a.lost:(b[sortBy]||0)-(a[sortBy]||0));
+  const me=cloud?cloud.uid:'me';
+  $('#board').innerHTML=arr.length?arr.map((f,i)=>{const k=keyOf(f),mine=f.uid===me;
+    return `<li class="fail"><div class="rank">${i+1}</div><div style="min-width:0">
+      <div class="who"><span>${esc(nameOf(f))}</span>${f.ex?'<span class="ex">範例</span>':''}${mine?'<span class="ex">我</span>':''}</div>
+      <p class="what">${esc(f.text)}</p>
+      <div class="meta"><span class="m">損失 <b>${+f.lost||0}</b> 分</span><span class="m">燃燒 <b>${+f.kcal||0}</b> 大卡</span><span class="m">${esc(ACT[f.act]?.n||'')}</span><span class="m blame">怪：${esc(f.blame)}</span>
+      ${mine&&!f.ex?`<button type="button" class="del" data-del="${esc(f.id)}">刪除</button>`:''}
+      <button type="button" class="like" data-like="${esc(k)}" aria-pressed="${!!myLikes[k]}" ${mine?'disabled':''}>同感 <span class="num">${likes[k]||0}</span></button></div>
+    </div></li>`}).join(''):`<li class="empty">還沒有人上榜。第一個承認的人最勇敢：打開上面的表單寫下你的故事。</li>`}
+$$('[data-sort]').forEach(b=>b.onclick=()=>{sortBy=b.dataset.sort;$$('[data-sort]').forEach(x=>x.setAttribute('aria-pressed',x===b));renderBoard()});
+function updCalc(){const a=$('#f-act').value,d=+$('#f-dur').value||0,kg=+$('#f-kg').value||60;
+  $('#calc').innerHTML=`約燃燒 <b>${kcalOf(a,d,kg)}</b> 大卡　<span class="muted">（${ACT[a].n} MET ${ACT[a].met} × ${kg} kg × ${d} min）</span>`}
+['#f-act','#f-dur','#f-kg'].forEach(s=>$(s).addEventListener('input',updCalc));
+// profile fields mirror the form fields
+$('#f-handle').value=$('#p-handle').value=store.get('handle','');$('#f-kg').value=$('#p-kg').value=store.get('kg',60);
+$('#p-handle').addEventListener('input',e=>{store.set('handle',e.target.value.slice(0,20));$('#f-handle').value=e.target.value});
+$('#p-kg').addEventListener('input',e=>{store.set('kg',+e.target.value||60);$('#f-kg').value=e.target.value;updCalc()});
+
+let writing=false;
+$('#fform').addEventListener('submit',async e=>{e.preventDefault();if(writing)return;
+  const text=$('#f-text').value.trim();if(!text){toast('先寫一下發生了什麼事');return}
+  const kg=Math.min(200,Math.max(25,+$('#f-kg').value||60));store.set('kg',kg);$('#p-kg').value=kg;
+  const handle=$('#f-handle').value.trim().slice(0,20);store.set('handle',handle);$('#p-handle').value=handle;
+  const entry={id:Date.now().toString(36),text:text.slice(0,140),blame:$('#f-blame').value,lost:Math.min(600,Math.max(1,Math.round(+$('#f-lost').value||1))),
+    act:$('#f-act').value,dur:Math.min(180,Math.max(1,Math.round(+$('#f-dur').value||1))),at:Date.now()};
+  entry.kcal=kcalOf(entry.act,entry.dur,kg);
+  writing=true;$('#fsubmit').disabled=true;
+  try{
+    if(cloud){const mine=fails.filter(f=>f.uid===cloud.uid&&!f.ex).map(({uid,...r})=>r);
+      await cloud.db.doc('fails/'+cloud.uid).set({handle,entries:mine.concat(entry).slice(-30),updatedAt:Date.now()})}
+    else{const loc=store.get('fails',[]);loc.push({...entry,handle});store.set('fails',loc.slice(-30));localLoad();renderBoard()}
+    $('#f-text').value='';$('#formcard').open=false;toast('上榜了！損失 '+entry.lost+' 分鐘、燃燒 '+entry.kcal+' 大卡');
+  }catch(err){toast(err&&err.code==='not_granted'?'你只有檢視權限，沒辦法投稿':'送出失敗，請再試一次')}
+  finally{writing=false;$('#fsubmit').disabled=false}});
+$('#board').addEventListener('click',async e=>{
+  const lb=e.target.closest('[data-like]'), db_=e.target.closest('[data-del]');
+  if(lb){const k=lb.dataset.like;const next={...myLikes};if(next[k])delete next[k];else next[k]=true;
+    if(cloud){try{await cloud.db.doc('votes/'+cloud.uid).set({likes:next})}catch(err){toast('沒辦法按同感：'+(err.code==='not_granted'?'只有檢視權限':'請再試一次'))}}
+    else{myLikes=next;store.set('likes',next);likes={};for(const x in next)likes[x]=1;renderBoard()}}
+  if(db_){if(db_.dataset.armed!=='1'){db_.dataset.armed='1';db_.textContent='再按一次確認刪除';return}
+    const id=db_.dataset.del;
+    if(cloud){const mine=fails.filter(f=>f.uid===cloud.uid&&!f.ex&&f.id!==id).map(({uid,...r})=>r);
+      try{await cloud.db.doc('fails/'+cloud.uid).update({entries:mine,updatedAt:Date.now()})}catch(err){toast('刪除失敗')}}
+    else{store.set('fails',store.get('fails',[]).filter(f=>f.id!==id));localLoad();renderBoard()}}});
+
+/* ---------- Cloud ---------- */
+async function initCloud(){
+  if(!window.claude||typeof window.claude.use!=='function')return;
+  const [db,user]=await Promise.all([claude.use('db'),claude.use('user')]);
+  if(!db||!user)return;const uid=await user.id();if(!uid)return;
+  cloud={db,user,uid};fails=[];renderBoard();$('#board').innerHTML='<li class="empty">正在載入排行榜…</li>';
+  const timer=setTimeout(()=>{$('#board').innerHTML='<li class="empty">排行榜暫時連不上，稍後再打開看看。</li>'},10000);
+  $('#bdstore').textContent='排行榜與所有打開這個頁面的人共享。';$('#ckstore').textContent='打卡紀錄跟著你的帳號，只有你看得到。';
+  db.collection('fails').onSnapshot(async snap=>{clearTimeout(timer);
+    fails=[];snap.docs.forEach(d=>{const v=d.data()||{};(Array.isArray(v.entries)?v.entries:[]).forEach(en=>{if(en&&en.id&&en.text)fails.push({...en,uid:d.id,handle:typeof v.handle==='string'?v.handle.slice(0,20):''})})});
+    const ids=[...new Set(fails.filter(f=>!f.handle).map(f=>f.uid))];
+    if(ids.length){try{profiles={...profiles,...await user.profiles(ids)}}catch(e){}}
+    renderBoard()},()=>{clearTimeout(timer);$('#board').innerHTML='<li class="empty">排行榜暫時連不上，稍後再打開看看。</li>'});
+  db.collection('votes').onSnapshot(snap=>{likes={};myLikes={};snap.docs.forEach(d=>{const l=(d.data()||{}).likes||{};for(const k in l){likes[k]=(likes[k]||0)+1;if(d.id===uid)myLikes[k]=true}});renderBoard()});
+  const ck=db.collection('data/users/'+uid).doc('checkins');let first=true;
+  ck.onSnapshot(snap=>{const remote=(snap.exists&&snap.data().days)||{};
+    if(first){first=false;const merged={...days,...remote};if(Object.keys(merged).length!==Object.keys(remote).length){ck.set({days:merged}).catch(()=>{})}days=merged}
+    else days=remote;store.set('days',days);renderCheckin()},()=>{});
+  saveDays=d=>{store.set('days',d);ck.set({days:d}).catch(()=>toast('打卡沒同步成功，已先存在這台裝置'))};
+}
+
+/* ---------- Boot ---------- */
+drawBase();drawStops();drawDynamic();placeHome();
+if(noCollect(NOW))$('#banner').innerHTML='<b>今天停收</b>（台北週三、週日不收垃圾）。地圖照樣用模擬時鐘示範路線。';
+$('#addrtext').textContent=addrLabel();
+setMode(store.get('mode','live'));setSocial(social);showTab(store.get('tab','map'));localLoad();renderBoard();renderCheckin();updCalc();
+let lastList=0;
+function loop(now){tick(now);renderMap();if(now-lastList>500){renderList(false);lastList=now}requestAnimationFrame(loop)}
+requestAnimationFrame(t=>{last=t;loop(t)});
+initCloud().catch(()=>{});
+})();
+</script>
